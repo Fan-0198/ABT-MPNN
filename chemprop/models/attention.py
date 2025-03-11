@@ -250,76 +250,46 @@ class MultiAtomAttention(nn.Module):
         self.norm = nn.LayerNorm(self.hidden_size, elementwise_affine=True)
 
     def forward(self, cur_hiddens, i, f_adj, f_dist, f_clb, viz_dir=None):
-        """
-        Calculate the atom-level attention of a molecule with Transformer in the readout phase.
-
-        :param cur_hiddens: Hidden states of a molecule
-        :param i: An atom index to a list of atom matrices.
-        :param f_adj: The adjacency matrix of the molecule.
-        :param f_dist: The distance matrix of the molecule.
-        :param f_clb: The coulomb matrix of the molecule.
-        :return: A PyTorch tensor of shape :code:`(num_atoms, hidden_size)` containing the hidden states of a molecules.
-        """
         # cur_hidden (1 mol): num_atoms x hidden_size
         cur_hiddens_size = cur_hiddens.size()
+        num_atoms = cur_hiddens_size[0]  # 当前分子的原子数量
 
-        # (num_atoms, num_head, att_size)
-        a_q = self.W_a_q(cur_hiddens).view(
-            cur_hiddens_size[0], self.num_heads, self.att_size)
-        # (num_atoms, num_head, att_size)
-        a_k = self.W_a_k(cur_hiddens).view(
-            cur_hiddens_size[0], self.num_heads, self.att_size)
-        # (num_atoms, num_head, att_size)
-        a_v = self.W_a_v(cur_hiddens).view(
-            cur_hiddens_size[0], self.num_heads, self.att_size)
+    # (num_atoms, num_head, att_size)
+        a_q = self.W_a_q(cur_hiddens).view(cur_hiddens_size[0], self.num_heads, self.att_size)
+        a_k = self.W_a_k(cur_hiddens).view(cur_hiddens_size[0], self.num_heads, self.att_size)
+        a_v = self.W_a_v(cur_hiddens).view(cur_hiddens_size[0], self.num_heads, self.att_size)
         a_q = a_q.transpose(0, 1)  # (num_head, num_atoms, att_size)
-        # (num_head, att_size, num_atoms)
-        a_k = a_k.transpose(0, 1).transpose(1, 2)
+        a_k = a_k.transpose(0, 1).transpose(1, 2)  # (num_head, att_size, num_atoms)
         a_v = a_v.transpose(0, 1)  # (num_head, num_atoms, att_size)
 
         att_a_w = torch.matmul(a_q, a_k)  # (num_head, num_atoms, num_atoms)
 
         if self.adjacency:
-            mol_adj = torch.Tensor(f_adj[i]).to(
-                self.device)  # (num_atoms, num_atoms)
-            att_a_w[0] = att_a_w[0] + self.f_scale * \
-                mol_adj  # (num_head, num_atoms, num_atoms)
-            att_a_w[1] = att_a_w[1] + self.f_scale * \
-                mol_adj  # (num_head, num_atoms, num_atoms)
+            mol_adj = torch.Tensor(f_adj[i][:num_atoms, :num_atoms]).to(self.device)  # 裁剪到当前分子的维度
+            att_a_w[0] = att_a_w[0] + self.f_scale * mol_adj
 
         if self.distance:
-            mol_dist = torch.Tensor(f_dist[i]).to(
-                self.device)  # (num_atoms, num_atoms)
+            mol_dist = torch.Tensor(f_dist[i][:num_atoms, :num_atoms]).to(self.device)  # 裁剪到当前分子的维度
             if self.normalize_matrices:
                 mol_dist = F.softmax(mol_dist, dim=1)
-
-            att_a_w[2] = att_a_w[2] + self.f_scale * \
-                mol_dist  # (num_head, num_atoms, num_atoms)
-            att_a_w[3] = att_a_w[3] + self.f_scale * \
-                mol_dist  # (num_head, num_atoms, num_atoms)
+            att_a_w[2] = att_a_w[2] + self.f_scale * mol_dist
 
         if self.coulomb:
-            mol_clb = torch.Tensor(f_clb[i]).to(
-                self.device)  # (num_atoms, num_atoms)
+            mol_clb = torch.Tensor(f_clb[i][:num_atoms, :num_atoms]).to(self.device)  # 裁剪到当前分子的维度
             if self.normalize_matrices:
                 mol_clb = F.softmax(mol_clb, dim=1)
+            att_a_w[4] = att_a_w[4] + self.f_scale * mol_clb
 
-            att_a_w[4] = att_a_w[4] + self.f_scale * \
-                mol_clb  # (num_head, num_atoms, num_atoms)
-            att_a_w[5] = att_a_w[5] + self.f_scale * \
-                mol_clb  # (num_head, num_atoms, num_atoms)
-
-        # (num_head, num_atoms, num_atoms)
+    # (num_head, num_atoms, num_atoms)
         att_a_w = F.softmax(att_a_w * self.scale_factor, dim=2)
         att_a_h = torch.matmul(att_a_w, a_v)  # (num_head, num_atoms, att_size)
         att_a_h = self.act_func(att_a_h)
         att_a_h = self.dropout_layer(att_a_h)
 
-        # (num_atom, num_head, att_size)
+    # (num_atom, num_head, att_size)
         att_a_h = att_a_h.transpose(0, 1).contiguous()
-        # (num_atom, hidden_size)
-        att_a_h = att_a_h.view(
-            cur_hiddens_size[0], self.num_heads * self.att_size)
+    # (num_atom, hidden_size)
+        att_a_h = att_a_h.view(cur_hiddens_size[0], self.num_heads * self.att_size)
         att_a_h = self.W_a_o(att_a_h)  # (num_atoms, hidden_size)
         assert att_a_h.size() == cur_hiddens_size
 
@@ -329,7 +299,6 @@ class MultiAtomAttention(nn.Module):
         mol_vec = (att_a_h).squeeze(dim=0)  # (num_atoms, hidden_size)
 
         return mol_vec, torch.mean(att_a_w, axis=0)
-
 
 class SublayerConnection(nn.Module):
     """
