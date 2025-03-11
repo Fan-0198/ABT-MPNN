@@ -599,7 +599,7 @@ def validate_data(data_path: str) -> Set[str]:
 
     # Validate smiles
     for smile in tqdm(smiles, total=len(smiles)):
-        mol = Chem.MolFromSmiles(smile)
+        mol = Chem.MolFromSmiles(smawile)
         if mol is None:
             errors.add('Data includes an invalid SMILES.')
 
