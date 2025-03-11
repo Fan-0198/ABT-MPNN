@@ -1,34 +1,23 @@
 from typing import List, Union
 import numpy as np
+from chemprop.polymer import make_polymer_mol 
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
 
+
 class MolMatrices:
-    """
-    A :class:`MolMatrices` represents the atomic matrices of a single molecule.
-
-    A MolMatrices computes the following attributes:
-
-    * :code:`n_atoms`: The number of atoms in the molecule.
-    * :code:`f_adj`: The adjacency matrix of the molecule.
-    * :code:`f_dist`: The distance matrix of the molecule.
-    * :code:`f_clb`: The coulomb matrix of the molecule.
-    """
-
     def __init__(self, mol: Union[str, Chem.Mol], args):
+        if isinstance(mol, str):  # 如果传入的是 SMILES 字符串
+            mol = make_polymer_mol(mol, keep_h=True, add_h=True)  # 通过 make_polymer_mol 转换为 mol 对象
 
         self.smiles = mol
-        # Convert SMILES to RDKit molecule if necessary
-        if type(mol) == str:
-            mol = Chem.MolFromSmiles(mol)
+        self.n_atoms = mol.GetNumAtoms()  # 获取原子数
 
-        self.n_atoms = mol.GetNumAtoms()  # number of atoms
-
-        # generate atomic matrices
-        adj = np.zeros((self.n_atoms, self.n_atoms))  # Adjacency matrix
-        clb = np.zeros((self.n_atoms, self.n_atoms))  # Coulomb matrix
-        dis = np.zeros((self.n_atoms, self.n_atoms))  # Distance matrix
+        # 生成原子矩阵
+        adj = np.zeros((self.n_atoms, self.n_atoms))  # 邻接矩阵
+        clb = np.zeros((self.n_atoms, self.n_atoms))  # 库仑矩阵
+        dis = np.zeros((self.n_atoms, self.n_atoms))  # 距离矩阵
 
         try:
             AllChem.EmbedMolecule(mol)
@@ -37,25 +26,24 @@ class MolMatrices:
 
             for a1 in range(self.n_atoms):
                 for a2 in range(self.n_atoms):
-                    # Distance Matrix
+                    # 距离矩阵
                     if args.distance:
                         dis[a1, a2] = self.get_dist(self.conformer, a1, a2)
 
-                    # Coulomb Matrix
+                    # 库仑矩阵
                     if args.coulomb:
                         zi = mol.GetAtomWithIdx(a1).GetAtomicNum()
                         zj = mol.GetAtomWithIdx(a2).GetAtomicNum()
                         if a1 == a2:
                             clb[a1, a2] = 0.5 * zi ** 2.4
                         else:
-                            conf_dist = self.get_dist(
-                                self.conformer, a1, a2, clb=True)
+                            conf_dist = self.get_dist(self.conformer, a1, a2, clb=True)
                             if conf_dist == 0:
                                 clb[a1, a2] == 0
                             else:
                                 clb[a1, a2] = zi * zj / conf_dist
 
-                     # Adjacency Matrix
+                    # 邻接矩阵
                     if args.adjacency:
                         bond = mol.GetBondBetweenAtoms(a1, a2)
                         if bond is None:
@@ -66,21 +54,13 @@ class MolMatrices:
         except (ValueError, AttributeError, ZeroDivisionError):
             for a1 in range(self.n_atoms):
                 for a2 in range(self.n_atoms):
-                    # Distance Matrix
+                    # 默认处理矩阵
                     if args.distance:
                         dis[a1, a2] = 0
-
-                    # Coulomb Matrix
                     if args.coulomb:
                         clb[a1, a2] = 0
-
-                    # Adjacency Matrix
                     if args.adjacency:
-                        bond = mol.GetBondBetweenAtoms(a1, a2)
-                        if bond is None:
-                            adj[a1, a2] = 0
-                        else:
-                            adj[a1, a2] = 1
+                        adj[a1, a2] = 1 if mol.GetBondBetweenAtoms(a1, a2) else 0
 
         self.f_adj = adj
         self.f_dist = dis

@@ -1,5 +1,5 @@
 import os
-
+import re
 import numpy as np
 import torch
 from rdkit import Chem
@@ -7,6 +7,12 @@ from rdkit.Chem.Draw import SimilarityMaps
 import matplotlib.pyplot as plt
 
 from .nn_utils import index_select_ND
+
+
+# Function to sanitize the SMILES string for use in file names
+def sanitize_smiles(smiles):
+    # Replace invalid characters like *, [, ], etc. with underscores or any other safe character
+    return re.sub(r'[^a-zA-Z0-9_-]', '_', smiles)
 
 
 def visualize_atom_attention(viz_dir: str,
@@ -44,8 +50,11 @@ def visualize_atom_attention(viz_dir: str,
 
     nanMean = np.nanmean(Amean_weight)
 
+    # Sanitize the SMILES string before creating the file path
+    sanitized_smiles = sanitize_smiles(mol_name)
+
     save_path = os.path.join(
-        smiles_viz_dir, f'{mol_name.replace("/", "")}.png')
+        smiles_viz_dir, f'{sanitized_smiles}.png')
 
     fig = SimilarityMaps.GetSimilarityMapFromWeights(mol, Amean_weight-nanMean,
                                                      alpha=0.3,
@@ -98,8 +107,11 @@ def visualize_bond_attention(viz_dir: str,
         Amean_weight = atomSum_weights / a_size
         nanMean = np.nanmean(Amean_weight)
 
+        # Sanitize the SMILES string before creating the file path
+        sanitized_smiles = sanitize_smiles(Chem.MolToSmiles(mol))
+
         save_path = os.path.join(
-            smiles_viz_dir, f'{Chem.MolToSmiles(mol)}.png')
+            smiles_viz_dir, f'{sanitized_smiles}.png')
 
         fig = SimilarityMaps.GetSimilarityMapFromWeights(mol, Amean_weight-nanMean,
                                                          alpha=0.3,

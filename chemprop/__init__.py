@@ -10,3 +10,4 @@ import chemprop.interpret
 import chemprop.nn_utils
 import chemprop.utils
 import chemprop.attention_visualization
+import chemprop.polymer
